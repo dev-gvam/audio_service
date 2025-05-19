@@ -640,7 +640,8 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
         final MediaStyle style = new MediaStyle()
             .setMediaSession(mediaSession.getSessionToken());
-        if (Build.VERSION.SDK_INT < 33) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+                && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) { // 21 ≤ SDK < 33
             style.setShowActionsInCompactView(compactActionIndices);
         }
         if (config.androidNotificationOngoing) {
@@ -656,25 +657,22 @@ public class AudioService extends MediaBrowserServiceCompat {
         return (NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
     }
 
-    private /*synchronized*/ NotificationCompat.Builder getNotificationBuilder() {
-        // This local variable could be commented out and replaced by an
-        // instance variable if we want to reuse the builder instance. However,
-        // there doesn't turn out to be much benefit to this since we don't
-        // actually reuse any of the previous notification values when setting
-        // a new notification.
-        NotificationCompat.Builder notificationBuilder = null;
-        if (notificationBuilder == null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                createChannel();
-            notificationBuilder = new NotificationCompat.Builder(this, notificationChannelId)
-                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                    .setShowWhen(false)
-                    .setDeleteIntent(buildDeletePendingIntent())
-            ;
+    private NotificationCompat.Builder getNotificationBuilder() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            createChannel();
         }
-        int iconId = getResourceId(config.androidNotificationIcon);
-        notificationBuilder.setSmallIcon(iconId);
-        return notificationBuilder;
+
+        NotificationCompat.Builder builder =
+                new NotificationCompat.Builder(getApplicationContext(), notificationChannelId)
+                        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                        .setShowWhen(false)
+                        .setDeleteIntent(buildDeletePendingIntent())
+                        .setPriority(Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+                                ? NotificationCompat.PRIORITY_LOW
+                                : NotificationCompat.PRIORITY_DEFAULT)
+                        .setSmallIcon(getResourceId(config.androidNotificationIcon));
+
+        return builder;
     }
 
     public void handleDeleteNotification() {
@@ -682,18 +680,31 @@ public class AudioService extends MediaBrowserServiceCompat {
         listener.onClose();
     }
 
-
     @RequiresApi(Build.VERSION_CODES.O)
     private void createChannel() {
-        NotificationManager notificationManager = getNotificationManager();
-        NotificationChannel channel = notificationManager.getNotificationChannel(notificationChannelId);
-        if (channel == null) {
-            channel = new NotificationChannel(notificationChannelId, config.androidNotificationChannelName, NotificationManager.IMPORTANCE_LOW);
-            channel.setShowBadge(config.androidShowNotificationBadge);
-            if (config.androidNotificationChannelDescription != null)
-                channel.setDescription(config.androidNotificationChannelDescription);
-            notificationManager.createNotificationChannel(channel);
+        NotificationManager notificationManager =
+                (NotificationManager) getApplicationContext()
+                        .getSystemService(Context.NOTIFICATION_SERVICE);
+        if (notificationManager == null) return;
+
+        NotificationChannel existingChannel =
+                notificationManager.getNotificationChannel(notificationChannelId);
+        if (existingChannel != null) return;
+
+        NotificationChannel channel = new NotificationChannel(
+                notificationChannelId,
+                config.androidNotificationChannelName != null
+                        ? config.androidNotificationChannelName
+                        : "Default Audio Channel",
+                NotificationManager.IMPORTANCE_DEFAULT
+        );
+
+        channel.setShowBadge(config.androidShowNotificationBadge);
+        if (config.androidNotificationChannelDescription != null) {
+            channel.setDescription(config.androidNotificationChannelDescription);
         }
+
+        notificationManager.createNotificationChannel(channel);
     }
 
     private void updateNotification() {

@@ -620,11 +620,13 @@ public class AudioService extends MediaBrowserServiceCompat {
     }
 
     private Notification buildNotification() {
-        int[] compactActionIndices = this.compactActionIndices;
-        if (compactActionIndices == null) {
-            compactActionIndices = new int[Math.min(MAX_COMPACT_ACTIONS, nativeActions.size())];
-            for (int i = 0; i < compactActionIndices.length; i++) compactActionIndices[i] = i;
+        int actionCount = nativeActions.size();
+        int maxCompact = Math.min(MAX_COMPACT_ACTIONS, actionCount);
+        int[] compactIndices = new int[maxCompact];
+        for (int i = 0; i < maxCompact; i++) {
+            compactIndices[i] = i;
         }
+
         NotificationCompat.Builder builder = getNotificationBuilder();
         if (mediaMetadata != null) {
             MediaDescriptionCompat description = mediaMetadata.getDescription();
@@ -638,24 +640,33 @@ public class AudioService extends MediaBrowserServiceCompat {
                 if (artBitmap != null)
                     builder.setLargeIcon(artBitmap);
             }
+        }else {
+            builder.setContentTitle("Audio").setContentText("");
         }
-        if (config.androidNotificationClickStartsActivity)
-            builder.setContentIntent(mediaSession.getController().getSessionActivity());
+        if (config.androidNotificationClickStartsActivity) {
+            PendingIntent pi = mediaSession.getController().getSessionActivity();
+            if (pi != null) {
+                builder.setContentIntent(pi);
+            }
+        }
         // TODO: Look at setColorized
-        if (config.notificationColor != -1)
+        if (config.notificationColor != -1) {
             builder.setColor(config.notificationColor);
+        }
+
         for (NotificationCompat.Action action : nativeActions) {
             builder.addAction(action);
         }
+
         final MediaStyle style = new MediaStyle()
             .setMediaSession(mediaSession.getSessionToken());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
-                && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) { // 21 ≤ SDK < 33
-            style.setShowActionsInCompactView(compactActionIndices);
+                && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && maxCompact > 0) {
+            style.setShowActionsInCompactView(compactIndices);
         }
         if (config.androidNotificationOngoing) {
-            style.setShowCancelButton(true);
-            style.setCancelButtonIntent(buildMediaButtonPendingIntent(PlaybackStateCompat.ACTION_STOP));
+            style.setShowCancelButton(true)
+                    .setCancelButtonIntent(buildMediaButtonPendingIntent(PlaybackStateCompat.ACTION_STOP));
             builder.setOngoing(true);
         }
         builder.setStyle(style);
@@ -671,16 +682,24 @@ public class AudioService extends MediaBrowserServiceCompat {
             createChannel();
         }
 
+        int iconId = getResourceId(config.androidNotificationIcon);
+        if (iconId == 0) {
+            iconId = R.drawable.ic_notification;
+        }
         NotificationCompat.Builder builder =
                 new NotificationCompat.Builder(getApplicationContext(), notificationChannelId)
+                        .setSmallIcon(iconId)
                         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                        .setShowWhen(false)
-                        .setDeleteIntent(buildDeletePendingIntent())
-                        .setPriority(Build.VERSION.SDK_INT < Build.VERSION_CODES.O
-                                ? NotificationCompat.PRIORITY_LOW
-                                : NotificationCompat.PRIORITY_DEFAULT)
-                        .setSmallIcon(getResourceId(config.androidNotificationIcon));
+                        .setShowWhen(false);
 
+        PendingIntent deleteIntent = buildDeletePendingIntent();
+        if (deleteIntent != null) {
+            builder.setDeleteIntent(deleteIntent);
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            builder.setPriority(NotificationCompat.PRIORITY_LOW);
+        }
         return builder;
     }
 
@@ -705,7 +724,7 @@ public class AudioService extends MediaBrowserServiceCompat {
                 config.androidNotificationChannelName != null
                         ? config.androidNotificationChannelName
                         : "Default Audio Channel",
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_LOW
         );
 
         channel.setShowBadge(config.androidShowNotificationBadge);

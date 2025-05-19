@@ -412,15 +412,24 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
     }
 
-    int getResourceId(String resource) {
-        String[] parts = resource.split("/");
+    private int getResourceId(String resource) {
+        if (resource == null || !resource.contains("/")) {
+            return 0;
+        }
+        String[] parts = resource.split("/", 2);
         String resourceType = parts[0];
         String resourceName = parts[1];
-        return getResources().getIdentifier(resourceName, resourceType, getApplicationContext().getPackageName());
-    }
 
+        int id = getApplicationContext()
+                .getResources()
+                .getIdentifier(resourceName, resourceType, getApplicationContext().getPackageName());
+        return id;
+    }
     NotificationCompat.Action createAction(String resource, String label, long actionCode) {
         int iconId = getResourceId(resource);
+        if (iconId == 0) {
+            iconId = R.drawable.ic_notification;
+        }
         return new NotificationCompat.Action(iconId, label,
                 buildMediaButtonPendingIntent(actionCode));
     }

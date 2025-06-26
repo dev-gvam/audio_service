@@ -21,14 +21,16 @@ import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_service_example/common.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
 
 // You might want to provide this using dependency injection rather than a
 // global variable.
-late AudioHandler _audioHandler;
+late AudioPlayerHandler _audioHandler;
 
 Future<void> main() async {
   _audioHandler = await AudioService.init(
@@ -55,11 +57,19 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class MainScreen extends StatelessWidget {
+class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
   @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  static const _channel = MethodChannel('com.ryanheise.audioservice.extra');
+
+  @override
   Widget build(BuildContext context) {
+    _audioHandler.setAudioSource(AudioPlayerHandler.staticItem);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Audio Service Demo'),
@@ -68,6 +78,10 @@ class MainScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            ElevatedButton(
+                onPressed: () => configureAudioSession(earpieceEnabled: true), child: const Text('Earpiece')),
+            ElevatedButton(
+                onPressed: () => configureAudioSession(earpieceEnabled: false), child: const Text('Speaker')),
             // Show media item title
             StreamBuilder<MediaItem?>(
               stream: _audioHandler.mediaItem,
@@ -78,9 +92,7 @@ class MainScreen extends StatelessWidget {
             ),
             // Play/pause/stop buttons.
             StreamBuilder<bool>(
-              stream: _audioHandler.playbackState
-                  .map((state) => state.playing)
-                  .distinct(),
+              stream: _audioHandler.playbackState.map((state) => state.playing).distinct(),
               builder: (context, snapshot) {
                 final playing = snapshot.data ?? false;
                 return Row(
@@ -113,12 +125,9 @@ class MainScreen extends StatelessWidget {
             ),
             // Display the processing state.
             StreamBuilder<AudioProcessingState>(
-              stream: _audioHandler.playbackState
-                  .map((state) => state.processingState)
-                  .distinct(),
+              stream: _audioHandler.playbackState.map((state) => state.processingState).distinct(),
               builder: (context, snapshot) {
-                final processingState =
-                    snapshot.data ?? AudioProcessingState.idle;
+                final processingState = snapshot.data ?? AudioProcessingState.idle;
                 return Text(
                     // ignore: deprecated_member_use
                     "Processing state: ${describeEnum(processingState)}");
@@ -130,13 +139,42 @@ class MainScreen extends StatelessWidget {
     );
   }
 
+  Future<void> setVoiceCommunicationMode(bool enabled) async {
+    await _channel.invokeMethod('setVoiceCommunicationMode', enabled);
+  }
+
+  Future<void> configureAudioSession({required bool earpieceEnabled}) async {
+    final session = await AudioSession.instance;
+
+    if (earpieceEnabled) {
+      await session.configure(const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+        avAudioSessionMode: AVAudioSessionMode.voiceChat,
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.speech,
+          usage: AndroidAudioUsage.voiceCommunication,
+        ),
+      ));
+      setVoiceCommunicationMode(true);
+    } else {
+      await session.configure(const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playback,
+        avAudioSessionMode: AVAudioSessionMode.defaultMode,
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.music,
+          usage: AndroidAudioUsage.media,
+        ),
+      ));
+      setVoiceCommunicationMode(false);
+    }
+
+    await session.setActive(true);
+  }
+
   /// A stream reporting the combined state of the current media item and its
   /// current position.
-  Stream<MediaState> get _mediaStateStream =>
-      Rx.combineLatest2<MediaItem?, Duration, MediaState>(
-          _audioHandler.mediaItem,
-          AudioService.position,
-          (mediaItem, position) => MediaState(mediaItem, position));
+  Stream<MediaState> get _mediaStateStream => Rx.combineLatest2<MediaItem?, Duration, MediaState>(
+      _audioHandler.mediaItem, AudioService.position, (mediaItem, position) => MediaState(mediaItem, position));
 
   IconButton _button(IconData iconData, VoidCallback onPressed) => IconButton(
         icon: Icon(iconData),
@@ -154,29 +192,42 @@ class MediaState {
 
 /// An [AudioHandler] for playing a single item.
 class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
-  static final _item = MediaItem(
+  static final AudioPlayerHandler _instance = AudioPlayerHandler._();
+  static final staticItem = MediaItem(
     id: 'https://s3.amazonaws.com/scifri-episodes/scifri20181123-episode.mp3',
     album: "Science Friday",
     title: "A Salute To Head-Scratching Science",
     artist: "Science Friday and WNYC Studios",
     duration: const Duration(milliseconds: 5739820),
-    artUri: Uri.parse(
-        'https://media.wnyc.org/i/1400/1400/l/80/1/ScienceFriday_WNYCStudios_1400.jpg'),
+    artUri: Uri.parse('https://media.wnyc.org/i/1400/1400/l/80/1/ScienceFriday_WNYCStudios_1400.jpg'),
   );
 
   final _player = AudioPlayer();
 
+  AudioPlayer get player => _player;
+
+  factory AudioPlayerHandler() => _instance;
+
   /// Initialise our audio handler.
-  AudioPlayerHandler() {
+  AudioPlayerHandler._() {
     // So that our clients (the Flutter UI and the system notification) know
     // what state to display, here we set up our audio handler to broadcast all
     // playback state changes as they happen via playbackState...
     _player.playbackEventStream.map(_transformEvent).pipe(playbackState);
     // ... and also the current media item via mediaItem.
-    mediaItem.add(_item);
+    // mediaItem.add(_item);
 
     // Load the player.
-    _player.setAudioSource(AudioSource.uri(Uri.parse(_item.id)));
+    // _player.setAudioSource(AudioSource.uri(Uri.parse(_item.id)));
+  }
+
+  void setAudioSource(MediaItem item) async {
+    // This method is not used in this example, but you can use it to change the
+    // audio source dynamically.
+    await _player.setAudioSource(AudioSource.uri(Uri.parse(item.id)));
+    mediaItem.add(item);
+    print("Audio source set to: ${item.id}");
+    //_player.setVolume(1);
   }
 
   // In this simple example, we handle only 4 actions: play, pause, seek and

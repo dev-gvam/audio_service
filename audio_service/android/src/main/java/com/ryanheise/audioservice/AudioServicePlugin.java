@@ -281,6 +281,19 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
         if (mediaBrowser == null) {
             connect();
         }
+        new MethodChannel(binding.getBinaryMessenger(), "com.ryanheise.audioservice.extra")
+        .setMethodCallHandler(
+            (call, result) -> {
+                if (call.method.equals("setVoiceCommunicationMode")) {
+                    boolean enabled = (Boolean) call.arguments;
+                    AudioService.instance.setVoiceCommunicationMode(enabled);
+                    result.success(null);
+                } else {
+                    result.notImplemented();
+                }
+                
+            }
+        );
     }
 
     @Override

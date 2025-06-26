@@ -105,6 +105,7 @@ public class AudioService extends MediaBrowserServiceCompat {
     private static ServiceListener listener;
     private static List<MediaSessionCompat.QueueItem> queue = new ArrayList<>();
     private static final Map<String, MediaMetadataCompat> mediaMetadataCache = new HashMap<>();
+    private boolean isVoiceCommunication = false;
 
     public static void init(ServiceListener listener) {
         AudioService.listener = listener;
@@ -579,10 +580,19 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
     }
 
+    public void setVoiceCommunicationMode(boolean enabled) {
+        isVoiceCommunication = enabled;
+        if (enabled) {
+            mediaSession.setPlaybackToLocal(AudioManager.STREAM_VOICE_CALL);
+        } else {
+            mediaSession.setPlaybackToLocal(AudioManager.STREAM_MUSIC);
+        }
+    }
+
     public void setPlaybackInfo(int playbackType, Integer volumeControlType, Integer maxVolume, Integer volume) {
         if (playbackType == MediaControllerCompat.PlaybackInfo.PLAYBACK_TYPE_LOCAL) {
             // We have to wait 'til media2 before we can use AudioAttributes.
-            mediaSession.setPlaybackToLocal(AudioManager.STREAM_MUSIC);
+            mediaSession.setPlaybackToLocal(isVoiceCommunication ? AudioManager.STREAM_VOICE_CALL : AudioManager.STREAM_MUSIC);
             volumeProvider = null;
         } else if (playbackType == MediaControllerCompat.PlaybackInfo.PLAYBACK_TYPE_REMOTE) {
             if (volumeProvider == null || volumeControlType != volumeProvider.getVolumeControl() || maxVolume != volumeProvider.getMaxVolume()) {
